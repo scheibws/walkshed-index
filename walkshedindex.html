@@ -1,0 +1,1681 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Walkshed Index (0–100) • Upload/Manual Stops • Linked Hover • BG Toggle • CSV/PDF Export</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+
+  <!-- Mapbox GL -->
+  <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet">
+  <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
+
+  <!-- Turf.js -->
+  <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+
+  <!-- Shapefile (shpjs) -->
+  <script src="https://unpkg.com/shpjs@latest/dist/shp.min.js"></script>
+
+  <!-- jsPDF -->
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+
+  <style>
+    :root{
+      --bg:#0b1020;--panel:rgba(15,23,42,.92);--text:#e5e7eb;--muted:#9ca3af;
+      --accent:#60a5fa;--ok:#34d399;--warn:#fbbf24;--bad:#fb7185;
+      --border:rgba(148,163,184,.18);--shadow:0 10px 30px rgba(0,0,0,.35);--radius:16px;
+      --mono:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;
+      --sans:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,"Apple Color Emoji","Segoe UI Emoji";
+    }
+    body{margin:0;font-family:var(--sans);background:var(--bg);color:var(--text);}
+    #app{display:flex;height:100vh;width:100vw;overflow:hidden;}
+    #sidebar{
+      width:560px;max-width:740px;background:var(--panel);border-right:1px solid var(--border);
+      box-shadow:var(--shadow);padding:14px 14px 18px 14px;overflow:auto;
+    }
+    #map{flex:1;}
+    h1{font-size:16px;margin:2px 0 10px 0;letter-spacing:.2px;}
+    .sub{color:var(--muted);font-size:12px;line-height:1.35;margin-bottom:12px;}
+    .card{background:rgba(2,6,23,.55);border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin:10px 0;}
+    .row{display:flex;gap:10px;align-items:center;}
+    .row.wrap{flex-wrap:wrap;}
+    label{font-size:12px;color:var(--muted);display:block;margin-bottom:6px;}
+    select,input,button{
+      border-radius:12px;border:1px solid var(--border);background:rgba(15,23,42,.65);
+      color:var(--text);padding:10px 10px;outline:none;width:100%;font-size:13px;
+    }
+    button{cursor:pointer;transition:transform .05s ease,border-color .2s ease,background .2s ease;}
+    button:hover{border-color:rgba(96,165,250,.6);}
+    button:active{transform:translateY(1px);}
+    button.primary{background:rgba(96,165,250,.18);border-color:rgba(96,165,250,.45);}
+    button.danger{background:rgba(251,113,133,.12);border-color:rgba(251,113,133,.45);}
+    button.ghost{background:rgba(15,23,42,.25);border-color:rgba(148,163,184,.25);}
+    button.smallbtn{width:auto;padding:8px 10px;}
+    .pill{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;border:1px solid var(--border);
+      background:rgba(15,23,42,.45);font-size:12px;color:var(--muted);}
+    .dot{width:8px;height:8px;border-radius:50%;background:var(--accent);}
+    .dot.ok{background:var(--ok);} .dot.warn{background:var(--warn);} .dot.bad{background:var(--bad);}
+    .small{font-size:12px;color:var(--muted);line-height:1.35;}
+    .mono{font-family:var(--mono);}
+    .divider{height:1px;background:var(--border);margin:10px 0;}
+    .statgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px;}
+    .stat{border:1px solid var(--border);border-radius:14px;padding:10px;background:rgba(15,23,42,.45);}
+    .stat .k{font-size:11px;color:var(--muted);margin-bottom:6px;}
+    .stat .v{font-size:16px;font-weight:650;letter-spacing:.2px;}
+    .stat .s{font-size:11px;color:var(--muted);margin-top:4px;font-family:var(--mono);}
+    table{width:100%;border-collapse:collapse;}
+    th,td{padding:8px 6px;font-size:12px;border-bottom:1px solid rgba(148,163,184,.18);}
+    th{color:var(--muted);text-align:left;font-weight:600;position:sticky;top:0;background:rgba(15,23,42,.92);}
+    tr:hover td{background:rgba(96,165,250,.08);}
+    tr.row-highlight td{background:rgba(96,165,250,.22)!important;}
+    tr.row-highlight td b{color:#e5e7eb;}
+    .mapboxgl-popup-content{
+      background:rgba(15,23,42,.92);color:var(--text);border:1px solid rgba(148,163,184,.25);
+      border-radius:14px;box-shadow:var(--shadow);padding:10px 10px;font-size:12px;
+    }
+    .mapboxgl-popup-tip{border-top-color:rgba(15,23,42,.92)!important;}
+    .mapboxgl-ctrl-attrib{font-size:10px;}
+    .toggle{display:flex;align-items:center;gap:8px;}
+    .toggle input{width:auto;}
+    .progress{font-family:var(--mono);font-size:11px;color:var(--muted);}
+    .hint{font-size:11px;color:var(--muted);font-family:var(--mono);}
+
+    #exportMapHost{
+      position:fixed;
+      left:-10000px; top:-10000px;
+      width:1024px; height:768px;
+      opacity:0;
+      pointer-events:none;
+    }
+  </style>
+</head>
+
+<body>
+<div id="app">
+  <div id="sidebar">
+    <h1>Walkshed index (0–100) + linked hover + upload/manual stops + BG toggle + CSV/PDF export</h1>
+    <div class="sub">
+      Upload a stops shapefile ZIP <b>or</b> add stops manually by clicking on the map.
+      Hover any stop/walkshed/row to highlight the others. Click a walkshed polygon on the map or a row in the table to update the selected summary.
+    </div>
+
+    <div class="card">
+      <div class="row wrap">
+        <div style="flex:1 1 160px;">
+          <label>Walkshed (walk minutes)</label>
+          <select id="minutes">
+            <option value="5">5</option>
+            <option value="10" selected>10</option>
+            <option value="15">15</option>
+            <option value="20">20</option>
+            <option value="30">30</option>
+          </select>
+        </div>
+        <div style="flex:1 1 260px;">
+          <label>Stop label field (optional, shapefile only)</label>
+          <input id="labelField" placeholder="e.g., stop_name or NAME" />
+        </div>
+      </div>
+
+      <div class="row wrap" style="margin-top:10px;">
+        <div style="flex:1 1 260px;">
+          <label>Max stops to process (0 = all)</label>
+          <input id="maxStops" value="0" />
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:10px;">
+        <div class="toggle">
+          <input id="autoBatch" type="checkbox" checked />
+          <label for="autoBatch" style="margin:0;">Auto-compute after shapefile upload</label>
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:10px;">
+        <div class="toggle">
+          <input id="showBGToggle" type="checkbox" />
+          <label for="showBGToggle" style="margin:0;">Show block groups on hover/selection</label>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <input id="shpZipInput" type="file" accept=".zip" style="display:none" />
+
+      <div class="row">
+        <button id="loadStopsBtn" class="primary">Load stops (Shapefile ZIP)</button>
+        <button id="clearStopsBtn" class="danger smallbtn">Clear stops</button>
+      </div>
+
+      <div class="row" style="margin-top:10px;">
+        <div class="toggle" style="flex:1;">
+          <input id="manualMode" type="checkbox" />
+          <label for="manualMode" style="margin:0;">Add stops by clicking on the map</label>
+        </div>
+        <button id="undoManualBtn" class="ghost smallbtn" title="Remove last manually added stop">Undo</button>
+      </div>
+
+      <div class="row" style="margin-top:10px;">
+        <button id="runIndexBtn" class="primary">Run index for current stops</button>
+        <button id="cancelBtn" class="danger" disabled style="width:auto;padding:10px 12px;">Cancel</button>
+      </div>
+
+      <div class="divider"></div>
+      <div class="row" style="justify-content:space-between;">
+        <span class="pill"><span id="statusDot" class="dot"></span><span id="statusText">Ready</span></span>
+        <span class="pill"><span class="dot ok"></span><span class="mono" id="yearText">ACS 2024</span></span>
+      </div>
+      <div class="progress" id="progressText" style="margin-top:8px;">—</div>
+      <div class="hint" id="manualHint" style="margin-top:6px;display:none;">Manual mode ON: click map to add stops.</div>
+    </div>
+
+    <div class="card">
+      <div class="small">
+        <b>Selected walkshed details</b>
+        <span class="mono" style="color:#9ca3af;"> • </span>
+        <span class="mono" id="selectedWalkshedName" style="color:#9ca3af;">None selected</span>
+      </div>
+      <div class="statgrid">
+        <div class="stat">
+          <div class="k">Population reached</div>
+          <div class="v" id="popReached">—</div>
+          <div class="s">area-weighted</div>
+        </div>
+        <div class="stat">
+          <div class="k">Minority share</div>
+          <div class="v" id="minorityShare">—</div>
+          <div class="s">minority / pop</div>
+        </div>
+        <div class="stat">
+          <div class="k">Zero-vehicle HH share</div>
+          <div class="v" id="zeroVehShare">—</div>
+          <div class="s">0-veh / HH</div>
+        </div>
+        <div class="stat">
+          <div class="k">Income (approx)</div>
+          <div class="v" id="incomeApprox">—</div>
+          <div class="s">pop-weighted median</div>
+        </div>
+      </div>
+      <div class="small" style="margin-top:10px;">
+        Tip: click a walkshed polygon on the map or click a row in the table to update this summary.
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="row" style="justify-content:space-between;align-items:flex-end;">
+        <div>
+          <div class="small"><b>Walkshed index scores</b></div>
+          <div class="small">Variable scores min-max 0–100 (income inverted). Overall normalized so best=100, worst=0.</div>
+        </div>
+        <div class="row" style="gap:8px;">
+          <button id="exportBtn" class="ghost smallbtn">Export CSV</button>
+          <button id="exportPdfBtn" class="ghost smallbtn">Export PDF</button>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Stop</th>
+            <th>Min</th>
+            <th>Overall</th>
+            <th>Pop</th>
+            <th>Min%</th>
+            <th>0Veh%</th>
+            <th>Inc</th>
+            <th>PopS</th>
+            <th>MinS</th>
+            <th>0VehS</th>
+            <th>IncS</th>
+          </tr>
+        </thead>
+        <tbody id="scoreRows">
+          <tr><td colspan="11" class="small">No walksheds yet. Add or load stops, then run the index.</td></tr>
+        </tbody>
+      </table>
+
+      <div class="small" style="margin-top:10px;">
+        Click a row to select its walkshed (no auto-zoom).
+      </div>
+    </div>
+  </div>
+
+  <div id="map"></div>
+</div>
+
+<div id="exportMapHost"></div>
+
+<script>
+  // =========================
+  // Config
+  // =========================
+  mapboxgl.accessToken = "pk.eyJ1Ijoid2FsdGVyc2NoZWliIiwiYSI6ImNtbTVnY2lkYTA2ZmYycW9tbG5nMnoxbmYifQ.tMOP6wo0LKSy0gCsmfrCQQ";
+
+  const ACS_YEAR = 2024;
+  const ACS_BASE = `https://api.census.gov/data/${ACS_YEAR}/acs/acs5`;
+  const TIGER_BG_QUERY = "https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/Tracts_Blocks/MapServer/1/query";
+
+  const ACS_VARS = [
+    "B01003_001E",
+    "B03002_001E","B03002_003E",
+    "B25044_001E","B25044_003E","B25044_010E",
+    "B19013_001E"
+  ];
+
+  const SOURCES = {
+    STOPS: "stops-src",
+    ISO: "iso-src",
+    BG: "bgx-src",
+    ALL: "walksheds-src",
+    H_STOP: "highlight-stop-src",
+    H_WALK: "highlight-walkshed-src",
+    SEL_WALK: "selected-walkshed-src"
+  };
+
+  const LAYERS = {
+    STOPS: "stops-lyr",
+    ISO_FILL: "iso-fill",
+    ISO_LINE: "iso-line",
+    BG_FILL: "bgx-fill",
+    BG_LINE: "bgx-line",
+    ALL_FILL: "walksheds-fill",
+    ALL_LINE: "walksheds-line",
+    H_STOP: "highlight-stop-lyr",
+    H_WALK_FILL: "highlight-walkshed-fill",
+    H_WALK_LINE: "highlight-walkshed-line",
+    SEL_WALK_FILL: "selected-walkshed-fill",
+    SEL_WALK_LINE: "selected-walkshed-line"
+  };
+
+  // Export map (offscreen) sources/layers
+  const EXPORT = {
+    SOURCES: { ISO: "x-iso-src", ALL: "x-walksheds-src" },
+    LAYERS: { ISO_FILL: "x-iso-fill", ISO_LINE: "x-iso-line", ALL_FILL: "x-walksheds-fill", ALL_LINE: "x-walksheds-line" }
+  };
+
+  // =========================
+  // UI helpers
+  // =========================
+  const $ = (id) => document.getElementById(id);
+
+  function setStatus(text, level="info") {
+    $("statusText").textContent = text;
+    const dot = $("statusDot");
+    dot.classList.remove("ok","warn","bad");
+    if (level === "ok") dot.classList.add("ok");
+    else if (level === "warn") dot.classList.add("warn");
+    else if (level === "bad") dot.classList.add("bad");
+  }
+  function setProgress(text){ $("progressText").textContent = text; }
+
+  function fmtInt(x){ return (x==null || !Number.isFinite(x)) ? "—" : Math.round(x).toLocaleString(); }
+  function fmtMoney(x){ return (x==null || !Number.isFinite(x)) ? "—" : "$" + Math.round(x).toLocaleString(); }
+  function fmtPct(x){ return (x==null || !Number.isFinite(x)) ? "—" : (x*100).toFixed(1) + "%"; }
+  function fmtScore(x){ return (x==null || !Number.isFinite(x)) ? "—" : x.toFixed(1); }
+
+  function escapeHtml(str){
+    return String(str ?? "")
+      .replaceAll("&","&amp;")
+      .replaceAll("<","&lt;")
+      .replaceAll(">","&gt;")
+      .replaceAll('"',"&quot;")
+      .replaceAll("'","&#039;");
+  }
+
+  function safeNumOrNull(x){
+    if (x === null || x === undefined) return null;
+    const s = String(x).trim();
+    if (s === "" || s.toLowerCase() === "null" || s.toLowerCase() === "nan") return null;
+    const n = Number(s);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  function clamp(x, lo, hi){ return Math.max(lo, Math.min(hi, x)); }
+  function avgFinite(arr){
+    const a = arr.filter(v => Number.isFinite(v));
+    return a.length ? (a.reduce((s,x)=>s+x,0) / a.length) : null;
+  }
+  function cssEscape(s){
+    if (window.CSS && CSS.escape) return CSS.escape(s);
+    return String(s).replace(/"/g, '\\"');
+  }
+
+  function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
+  async function waitForMapSettled(m, timeoutMs=8000){
+    const start = Date.now();
+    while (true){
+      const settled = m.loaded() && !m.isMoving();
+      if (settled){
+        await new Promise(r => requestAnimationFrame(r));
+        return;
+      }
+      if (Date.now() - start > timeoutMs) return;
+      await sleep(60);
+    }
+  }
+  function captureMapImageSafe(m){
+    try { return { ok:true, data: m.getCanvas().toDataURL("image/png") }; }
+    catch(err){ console.warn("Map capture failed:", err); return { ok:false, err }; }
+  }
+
+  // =========================
+  // App state
+  // =========================
+  let stopsFC = { type:"FeatureCollection", features:[] };
+  let nextManualId = 1;
+
+  // NEW: Global stop numbering for BOTH upload + manual (Stop 1, Stop 2, ...)
+  let nextStopNumber = 1;
+
+  // wid -> { id,name,minutes,stopFeatureId,polygonFeature,metrics,scores,bgFeatures }
+  const walksheds = new Map();
+  let hoveredWid = null;
+  let selectedWid = null;
+
+  let batchAbort = { aborted: false };
+
+  // Used to avoid “zoom/selection changes” when clicking BGs or other layers
+  let _clickedBGThisTick = false;
+
+  // =========================
+  // Maps init
+  // =========================
+  const map = new mapboxgl.Map({
+    container: "map",
+    style: "mapbox://styles/mapbox/dark-v11",
+    center: [-104.991, 39.739],
+    zoom: 11,
+    preserveDrawingBuffer: true
+  });
+  map.addControl(new mapboxgl.NavigationControl(), "bottom-right");
+
+  const hoverPopup = new mapboxgl.Popup({ closeButton:false, closeOnClick:false });
+  $("yearText").textContent = `ACS ${ACS_YEAR}`;
+
+  // Offscreen export map (for PDF; does not move visible map)
+  const exportMap = new mapboxgl.Map({
+    container: "exportMapHost",
+    style: "mapbox://styles/mapbox/dark-v11",
+    center: [-104.991, 39.739],
+    zoom: 11,
+    preserveDrawingBuffer: true,
+    interactive: false
+  });
+  let exportMapReadyResolve;
+  const exportMapReady = new Promise(res => exportMapReadyResolve = res);
+
+  exportMap.on("load", () => {
+    exportMap.addSource(EXPORT.SOURCES.ISO, { type:"geojson", data:{ type:"FeatureCollection", features:[] }});
+    exportMap.addLayer({ id: EXPORT.LAYERS.ISO_FILL, type:"fill", source:EXPORT.SOURCES.ISO, paint:{ "fill-color":"rgba(148,163,184,0.35)", "fill-opacity":0.18 }});
+    exportMap.addLayer({ id: EXPORT.LAYERS.ISO_LINE, type:"line", source:EXPORT.SOURCES.ISO, paint:{ "line-color":"rgba(148,163,184,0.85)", "line-width":2.2, "line-opacity":0.9 }});
+
+    exportMap.addSource(EXPORT.SOURCES.ALL, { type:"geojson", data:{ type:"FeatureCollection", features:[] }});
+    exportMap.addLayer({ id: EXPORT.LAYERS.ALL_FILL, type:"fill", source:EXPORT.SOURCES.ALL, paint:{ "fill-color":"rgba(148,163,184,0.22)", "fill-opacity":0.10 }});
+    exportMap.addLayer({ id: EXPORT.LAYERS.ALL_LINE, type:"line", source:EXPORT.SOURCES.ALL, paint:{ "line-color":"rgba(148,163,184,0.45)", "line-width":1.2 }});
+
+    exportMapReadyResolve(true);
+  });
+
+  // =========================
+  // Selected walkshed summary
+  // =========================
+  function clearSelectedWalkshed(){
+    selectedWid = null;
+    $("selectedWalkshedName").textContent = "None selected";
+    $("popReached").textContent = "—";
+    $("minorityShare").textContent = "—";
+    $("zeroVehShare").textContent = "—";
+    $("incomeApprox").textContent = "—";
+    map.getSource(SOURCES.SEL_WALK)?.setData({ type:"FeatureCollection", features:[] });
+
+    if ($("showBGToggle").checked) syncDisplayedBlockGroups(null);
+  }
+
+  function setSelectedWalkshed(wid){
+    if (!wid || !walksheds.has(wid)) {
+      clearSelectedWalkshed();
+      return;
+    }
+    selectedWid = wid;
+    const it = walksheds.get(wid);
+    const m = it.metrics || {};
+    $("selectedWalkshedName").textContent = `${it.name} (${it.minutes} min)`;
+    $("popReached").textContent = fmtInt(m.pop_reached);
+    $("minorityShare").textContent = fmtPct(m.minority_share);
+    $("zeroVehShare").textContent = fmtPct(m.zero_vehicle_share);
+    $("incomeApprox").textContent = fmtMoney(m.income_approx);
+
+    // Persistent selected highlight (yellow) until cleared
+    map.getSource(SOURCES.SEL_WALK)?.setData({ type:"FeatureCollection", features:[it.polygonFeature] });
+
+    if ($("showBGToggle").checked) syncDisplayedBlockGroups(wid);
+  }
+
+  // =========================
+  // Block group display
+  // =========================
+  function setLayerVisible(layerId, visible){
+    try {
+      if (!map.getLayer(layerId)) return;
+      map.setLayoutProperty(layerId, "visibility", visible ? "visible" : "none");
+    } catch {}
+  }
+
+  function syncBGVisibility(){
+    const on = $("showBGToggle").checked;
+    setLayerVisible(LAYERS.BG_FILL, on);
+    setLayerVisible(LAYERS.BG_LINE, on);
+    if (!on){
+      map.getSource(SOURCES.BG)?.setData({ type:"FeatureCollection", features:[] });
+    } else {
+      syncDisplayedBlockGroups(selectedWid);
+    }
+  }
+
+  function syncDisplayedBlockGroups(wid){
+    if (!$("showBGToggle").checked){
+      map.getSource(SOURCES.BG)?.setData({ type:"FeatureCollection", features:[] });
+      return;
+    }
+    const it = wid ? walksheds.get(wid) : null;
+    const fc = (it && it.bgFeatures && it.bgFeatures.length)
+      ? { type:"FeatureCollection", features: it.bgFeatures }
+      : { type:"FeatureCollection", features:[] };
+    map.getSource(SOURCES.BG)?.setData(fc);
+  }
+
+  // =========================
+  // Main map load
+  // =========================
+  map.on("load", () => {
+    map.addSource(SOURCES.STOPS, { type:"geojson", data: stopsFC });
+    map.addLayer({
+      id: LAYERS.STOPS, type:"circle", source:SOURCES.STOPS,
+      paint: {
+        "circle-radius": ["interpolate",["linear"],["zoom"], 9,3, 13,5, 16,7],
+        "circle-color": "#60a5fa",
+        "circle-stroke-color": "#0b1020",
+        "circle-stroke-width": 1.2,
+        "circle-opacity": 0.9
+      }
+    });
+
+    map.addSource(SOURCES.ISO, { type:"geojson", data:{ type:"FeatureCollection", features:[] }});
+    map.addLayer({ id: LAYERS.ISO_FILL, type:"fill", source:SOURCES.ISO, paint:{ "fill-color":"rgba(148,163,184,0.35)", "fill-opacity":0.18 }});
+    map.addLayer({ id: LAYERS.ISO_LINE, type:"line", source:SOURCES.ISO, paint:{ "line-color":"rgba(148,163,184,0.85)", "line-width":2.2, "line-opacity":0.9 }});
+
+    map.addSource(SOURCES.ALL, { type:"geojson", data:{ type:"FeatureCollection", features:[] }});
+    map.addLayer({ id: LAYERS.ALL_FILL, type:"fill", source:SOURCES.ALL, paint:{ "fill-color":"rgba(148,163,184,0.22)", "fill-opacity":0.10 }});
+    map.addLayer({ id: LAYERS.ALL_LINE, type:"line", source:SOURCES.ALL, paint:{ "line-color":"rgba(148,163,184,0.45)", "line-width":1.2 }});
+
+    map.addSource(SOURCES.BG, { type:"geojson", data:{ type:"FeatureCollection", features:[] }});
+    map.addLayer({
+      id: LAYERS.BG_FILL, type:"fill", source:SOURCES.BG,
+      paint: {
+        "fill-color": "rgba(150, 40, 110, 0.70)",
+        "fill-opacity": 0.18
+      }
+    });
+    map.addLayer({
+      id: LAYERS.BG_LINE, type:"line", source:SOURCES.BG,
+      paint: {
+        "line-color": "rgba(150, 40, 110, 0.90)",
+        "line-width": 1.3,
+        "line-opacity": 0.85
+      }
+    });
+
+    map.addSource(SOURCES.SEL_WALK, { type:"geojson", data:{ type:"FeatureCollection", features:[] }});
+    map.addLayer({ id: LAYERS.SEL_WALK_FILL, type:"fill", source:SOURCES.SEL_WALK, paint:{ "fill-color":"#fbbf24", "fill-opacity":0.16 }});
+    map.addLayer({ id: LAYERS.SEL_WALK_LINE, type:"line", source:SOURCES.SEL_WALK, paint:{ "line-color":"#fbbf24", "line-width":4, "line-opacity":0.96 }});
+
+    map.addSource(SOURCES.H_STOP, { type:"geojson", data:{ type:"FeatureCollection", features:[] }});
+    map.addLayer({
+      id: LAYERS.H_STOP, type:"circle", source:SOURCES.H_STOP,
+      paint: {
+        "circle-radius": ["interpolate", ["linear"], ["zoom"], 9, 6, 13, 9, 16, 12],
+        "circle-color": "#fbbf24",
+        "circle-stroke-color": "#0b1020",
+        "circle-stroke-width": 2,
+        "circle-opacity": 0.95
+      }
+    });
+
+    map.addSource(SOURCES.H_WALK, { type:"geojson", data:{ type:"FeatureCollection", features:[] }});
+    map.addLayer({ id: LAYERS.H_WALK_FILL, type:"fill", source:SOURCES.H_WALK, paint:{ "fill-color":"#fbbf24", "fill-opacity":0.10 }});
+    map.addLayer({ id: LAYERS.H_WALK_LINE, type:"line", source:SOURCES.H_WALK, paint:{ "line-color":"#fbbf24", "line-width":3, "line-opacity":0.95 }});
+
+    wireInteractions();
+    clearSelectedWalkshed();
+    syncBGVisibility();
+
+    setStatus("Ready", "ok");
+    setProgress("Add or load stops. For manual stops, click “Run index for current stops”.");
+  });
+
+  // =========================
+  // Hover linking
+  // =========================
+  function setRowHighlight(wid){
+    const rows = document.querySelectorAll("#scoreRows tr[data-wid]");
+    rows.forEach(r => r.classList.remove("row-highlight"));
+    if (!wid) return;
+    const row = document.querySelector(`#scoreRows tr[data-wid="${cssEscape(wid)}"]`);
+    if (row) row.classList.add("row-highlight");
+  }
+
+  function clearHighlights(){
+    hoveredWid = null;
+    map.getSource(SOURCES.H_STOP)?.setData({ type:"FeatureCollection", features:[] });
+    map.getSource(SOURCES.H_WALK)?.setData({ type:"FeatureCollection", features:[] });
+    setRowHighlight(null);
+    syncDisplayedBlockGroups(selectedWid);
+  }
+
+  function highlightByWid(wid){
+    const it = walksheds.get(wid);
+    if (!it) return;
+
+    hoveredWid = wid;
+    setRowHighlight(wid);
+    map.getSource(SOURCES.H_WALK)?.setData({ type:"FeatureCollection", features:[it.polygonFeature] });
+
+    const stopF = stopsFC.features.find(f => String(f.properties?.id) === String(it.stopFeatureId));
+    map.getSource(SOURCES.H_STOP)?.setData({ type:"FeatureCollection", features: stopF ? [stopF] : [] });
+
+    syncDisplayedBlockGroups(wid);
+  }
+
+  function widForStopId(stopId){
+    const minutes = parseInt($("minutes").value, 10);
+    const exact = `${stopId}::${minutes}`;
+    if (walksheds.has(exact)) return exact;
+    for (const [wid, it] of walksheds.entries()){
+      if (String(it.stopFeatureId) === String(stopId)) return wid;
+    }
+    return null;
+  }
+
+  // =========================
+  // UI + Map interactions
+  // =========================
+  function wireInteractions(){
+    $("showBGToggle").addEventListener("change", syncBGVisibility);
+
+    map.on("click", (e) => {
+      if (_clickedBGThisTick){
+        _clickedBGThisTick = false;
+        return;
+      }
+      if ($("manualMode").checked) return;
+
+      const hits = map.queryRenderedFeatures(e.point, { layers: [LAYERS.ALL_FILL, LAYERS.STOPS, LAYERS.BG_FILL] });
+      if (hits && hits.length) return;
+
+      clearSelectedWalkshed();
+      map.getSource(SOURCES.ISO)?.setData({ type:"FeatureCollection", features:[] });
+      clearHighlights();
+    });
+
+    map.on("mousemove", LAYERS.STOPS, (e) => {
+      map.getCanvas().style.cursor = "pointer";
+      const f = e.features && e.features[0];
+      if (!f) return;
+
+      const stop = featureToStop(f);
+      const wid = widForStopId(stop.id);
+      if (wid && wid !== hoveredWid) highlightByWid(wid);
+
+      const computedTxt = wid ? "computed" : "not computed yet";
+      hoverPopup.setLngLat(e.lngLat).setHTML(
+        `<div style="font-weight:650;margin-bottom:4px;">${escapeHtml(stop.name)}</div>
+         <div class="mono" style="color:#9ca3af;">${escapeHtml(computedTxt)}</div>
+         <div class="mono" style="color:#9ca3af;">Click to compute this stop (manual mode OFF)</div>`
+      ).addTo(map);
+    });
+
+    map.on("mouseleave", LAYERS.STOPS, () => {
+      map.getCanvas().style.cursor = "";
+      hoverPopup.remove();
+      clearHighlights();
+    });
+
+    map.on("click", LAYERS.STOPS, async (e) => {
+      if ($("manualMode").checked) return;
+      const f = e.features && e.features[0];
+      if (!f) return;
+
+      const stop = featureToStop(f);
+      try{
+        setStatus("Computing one walkshed…", "warn");
+        const wid = await computeAndStoreWalkshed(stop, { keepBG: true, deferUI: false });
+        setSelectedWalkshed(wid);
+        setStatus("Done", "ok");
+      } catch(err){
+        console.error(err);
+        setStatus("Error computing walkshed (see console).", "bad");
+      }
+    });
+
+    map.on("mousemove", LAYERS.ALL_FILL, (e) => {
+      map.getCanvas().style.cursor = "pointer";
+      const f = e.features && e.features[0];
+      if (!f) return;
+      const wid = f.properties?.walkshed_id;
+      if (wid && wid !== hoveredWid) highlightByWid(wid);
+    });
+
+    map.on("mouseleave", LAYERS.ALL_FILL, () => {
+      map.getCanvas().style.cursor = "";
+      clearHighlights();
+    });
+
+    map.on("click", LAYERS.ALL_FILL, (e) => {
+      const f = e.features && e.features[0];
+      const wid = f?.properties?.walkshed_id;
+      if (!wid || !walksheds.has(wid)) return;
+
+      setSelectedWalkshed(wid);
+      const it = walksheds.get(wid);
+      map.getSource(SOURCES.ISO)?.setData({ type:"FeatureCollection", features:[it.polygonFeature] });
+    });
+
+    map.on("click", LAYERS.BG_FILL, () => { _clickedBGThisTick = true; });
+
+    map.on("mousemove", LAYERS.BG_FILL, (e) => {
+      if (!$("showBGToggle").checked) return;
+      const f = e.features && e.features[0];
+      if (!f) return;
+
+      map.getCanvas().style.cursor = "help";
+      const p = f.properties || {};
+
+      hoverPopup.setLngLat(e.lngLat).setHTML(
+        `<div style="font-weight:650;margin-bottom:6px;">Block group</div>
+         <div class="mono" style="color:#9ca3af;">GEOID: ${escapeHtml(p.GEOID ?? "—")}</div>
+         <div class="mono" style="margin-top:6px;">
+           est_pop: ${escapeHtml(fmtInt(p.est_pop))}<br/>
+           est_hh_total: ${escapeHtml(fmtInt(p.est_hh_total))}<br/>
+           est_hh_zero_veh: ${escapeHtml(fmtInt(p.est_hh_zero_veh))}<br/>
+           area_ratio: ${escapeHtml((Number.isFinite(p.area_ratio) ? p.area_ratio.toFixed(3) : "—"))}
+         </div>`
+      ).addTo(map);
+    });
+
+    map.on("mouseleave", LAYERS.BG_FILL, () => {
+      if (!$("showBGToggle").checked) return;
+      map.getCanvas().style.cursor = "";
+      try { hoverPopup.remove(); } catch {}
+    });
+
+    map.on("click", (e) => {
+      if (!$("manualMode").checked) return;
+      const feats = map.queryRenderedFeatures(e.point, { layers: [LAYERS.STOPS] });
+      if (feats && feats.length) return;
+      addManualStop(e.lngLat.lng, e.lngLat.lat);
+    });
+
+    $("loadStopsBtn").addEventListener("click", () => $("shpZipInput").click());
+    $("shpZipInput").addEventListener("change", handleShapefileZipUpload);
+
+    $("clearStopsBtn").addEventListener("click", clearAllStopsAndResults);
+
+    $("manualMode").addEventListener("change", () => {
+      $("manualHint").style.display = $("manualMode").checked ? "block" : "none";
+      setStatus($("manualMode").checked ? "Manual mode ON: click map to add stops." : "Manual mode OFF.", $("manualMode").checked ? "warn" : "ok");
+    });
+
+    $("undoManualBtn").addEventListener("click", undoLastManualStop);
+
+    $("runIndexBtn").addEventListener("click", () => {
+      if (!stopsFC.features.length) {
+        setStatus("No stops to process.", "warn");
+        return;
+      }
+      startBatchComputeForCurrentStops();
+    });
+
+    $("cancelBtn").addEventListener("click", () => {
+      batchAbort.aborted = true;
+      setStatus("Cancelling…", "warn");
+    });
+
+    $("exportBtn").addEventListener("click", exportCSV);
+    $("exportPdfBtn").addEventListener("click", exportPDF);
+  }
+
+  // =========================
+  // Stops (upload/manual)
+  // =========================
+  function featureToStop(f){
+    const coords = f.geometry.coordinates;
+    const p = f.properties || {};
+    const name = p.name || "Stop";
+    const id = String(p.id || `${coords[0].toFixed(6)},${coords[1].toFixed(6)}`);
+    return { id, name, lon: coords[0], lat: coords[1] };
+  }
+
+  function syncStopsToMap(){
+    map.getSource(SOURCES.STOPS)?.setData(stopsFC);
+  }
+
+  // UPDATED: manual stops are Stop 1, Stop 2, ...
+  function addManualStop(lon, lat){
+    const stopNumber = nextStopNumber++;
+    const id = `s${stopNumber}`;
+    const name = `Stop ${stopNumber}`;
+    const f = {
+      type:"Feature",
+      id,
+      geometry:{ type:"Point", coordinates:[lon, lat] },
+      properties:{ id, name, source:"manual", stop_num: stopNumber }
+    };
+    stopsFC.features.push(f);
+    syncStopsToMap();
+    setStatus(`Added ${name}. Add more, then click “Run index for current stops”.`, "ok");
+  }
+
+  function undoLastManualStop(){
+    for (let i = stopsFC.features.length - 1; i >= 0; i--){
+      const f = stopsFC.features[i];
+      if (f?.properties?.source === "manual"){
+        const removedName = f.properties?.name || "Manual stop";
+        stopsFC.features.splice(i, 1);
+        syncStopsToMap();
+        setStatus(`Removed ${removedName}.`, "ok");
+        return;
+      }
+    }
+    setStatus("No manual stops to undo.", "warn");
+  }
+
+  function clearAllStopsAndResults(){
+    stopsFC = { type:"FeatureCollection", features:[] };
+    nextManualId = 1;
+
+    // RESET numbering
+    nextStopNumber = 1;
+
+    syncStopsToMap();
+
+    walksheds.clear();
+    refreshAllWalkshedsLayer();
+    renderScoresTable();
+    clearHighlights();
+
+    map.getSource(SOURCES.ISO)?.setData({ type:"FeatureCollection", features:[] });
+    map.getSource(SOURCES.BG)?.setData({ type:"FeatureCollection", features:[] });
+    map.getSource(SOURCES.SEL_WALK)?.setData({ type:"FeatureCollection", features:[] });
+
+    clearSelectedWalkshed();
+    syncBGVisibility();
+
+    setStatus("Cleared stops + results.", "ok");
+    setProgress("Add or load stops. For manual stops, click “Run index for current stops”.");
+  }
+
+  async function handleShapefileZipUpload(evt){
+    const file = evt.target.files && evt.target.files[0];
+    evt.target.value = "";
+    if (!file) return;
+
+    try{
+      setStatus("Parsing shapefile ZIP…", "warn");
+      const buf = await file.arrayBuffer();
+      const parsed = await shp(buf);
+
+      let fc = normalizeToFirstFeatureCollection(parsed);
+      if (!fc || !fc.features?.length) throw new Error("No features found in ZIP.");
+
+      fc = flattenToPoints(fc);
+
+      fc.features.forEach((f) => {
+        f.properties = f.properties || {};
+
+        // UPDATED: uploaded stops are also Stop 1, Stop 2, ...
+        const stopNumber = nextStopNumber++;
+        const id = `s${stopNumber}`;
+        const name = `Stop ${stopNumber}`;
+
+        f.properties.id = id;
+        f.properties.name = name;
+        f.properties.source = "upload";
+        f.properties.stop_num = stopNumber;
+        f.id = id;
+
+        stopsFC.features.push(f);
+      });
+
+      syncStopsToMap();
+
+      const bb = turf.bbox(stopsFC);
+      map.fitBounds([[bb[0], bb[1]],[bb[2], bb[3]]], { padding: 50, duration: 700 });
+
+      setStatus(`Loaded ${fc.features.length} uploaded stops (merged).`, "ok");
+      setProgress("Add more manual stops if needed; then run the index.");
+
+      if ($("autoBatch").checked) startBatchComputeForCurrentStops();
+    } catch(err){
+      console.error(err);
+      setStatus("Shapefile import failed (see console).", "bad");
+    }
+  }
+
+  function normalizeToFirstFeatureCollection(parsed){
+    if (!parsed) return null;
+    if (parsed.type === "FeatureCollection") return parsed;
+    if (Array.isArray(parsed)) return parsed.find(x => x && x.type === "FeatureCollection") || null;
+    if (typeof parsed === "object"){
+      for (const k of Object.keys(parsed)){
+        const v = parsed[k];
+        if (v && v.type === "FeatureCollection") return v;
+        if (Array.isArray(v)){
+          const found = v.find(x => x && x.type === "FeatureCollection");
+          if (found) return found;
+        }
+      }
+    }
+    return null;
+  }
+
+  function flattenToPoints(fc){
+    const out = { type:"FeatureCollection", features:[] };
+    for (const f of (fc.features || [])){
+      if (!f?.geometry) continue;
+      const g = f.geometry;
+      if (g.type === "Point") out.features.push(f);
+      else if (g.type === "MultiPoint"){
+        (g.coordinates || []).forEach(c => {
+          out.features.push({ type:"Feature", geometry:{ type:"Point", coordinates:c }, properties:{ ...(f.properties||{}) } });
+        });
+      }
+    }
+    if (!out.features.length) throw new Error("Shapefile has no Point/MultiPoint features.");
+    return out;
+  }
+
+  // =========================
+  // Batch compute
+  // =========================
+  async function startBatchComputeForCurrentStops(){
+    batchAbort = { aborted: false };
+    $("cancelBtn").disabled = false;
+
+    const minutes = parseInt($("minutes").value, 10);
+    const concurrency = 2;
+    const maxStopsRaw = parseInt(($("maxStops").value || "0").trim(), 10);
+    const maxStops = Number.isFinite(maxStopsRaw) ? maxStopsRaw : 0;
+
+    walksheds.clear();
+    refreshAllWalkshedsLayer();
+    renderScoresTable();
+    clearHighlights();
+
+    map.getSource(SOURCES.ISO)?.setData({ type:"FeatureCollection", features:[] });
+    map.getSource(SOURCES.BG)?.setData({ type:"FeatureCollection", features:[] });
+    map.getSource(SOURCES.SEL_WALK)?.setData({ type:"FeatureCollection", features:[] });
+
+    clearSelectedWalkshed();
+
+    let stops = stopsFC.features.map(featureToStop);
+    if (maxStops > 0) stops = stops.slice(0, maxStops);
+
+    setStatus("Batch computing…", "warn");
+    setProgress(`Queued ${stops.length} stops @ concurrency=${concurrency}…`);
+
+    let completed = 0;
+    let failed = 0;
+
+    const queue = stops.slice();
+    const workers = Array.from({ length: concurrency }).map(async () => {
+      while (queue.length && !batchAbort.aborted){
+        const stop = queue.shift();
+        try{
+          await computeAndStoreWalkshed(stop, { keepBG:false, minutesOverride: minutes, deferUI: true });
+          completed += 1;
+        } catch(err){
+          console.warn("Stop failed:", stop?.name, err);
+          failed += 1;
+        }
+        setProgress(`Processed ${completed}/${stops.length} (failed ${failed})`);
+      }
+    });
+
+    await Promise.all(workers);
+    $("cancelBtn").disabled = true;
+
+    recomputeIndexScores();
+    normalizeOverallTo0_100();
+    renderScoresTable();
+    refreshAllWalkshedsLayer();
+
+    const ranked = getSortedWalkshedItems();
+    if (ranked.length) setSelectedWalkshed(ranked[0].id);
+
+    if (batchAbort.aborted){
+      setStatus(`Cancelled (${completed}/${stops.length} done)`, "warn");
+      setProgress(`Stopped early. Completed=${completed}, failed=${failed}`);
+    } else {
+      setStatus("Batch complete", "ok");
+      setProgress(`Done. Completed=${completed}, failed=${failed}`);
+    }
+  }
+
+  // =========================
+  // Walkshed compute
+  // =========================
+  async function computeAndStoreWalkshed(stop, opts){
+    const keepBG = !!opts?.keepBG;
+    const deferUI = !!opts?.deferUI;
+    const minutes = Number.isFinite(opts?.minutesOverride) ? opts.minutesOverride : parseInt($("minutes").value, 10);
+
+    const iso = await fetchIsochrone(stop.lon, stop.lat, minutes);
+    const wid = `${stop.id}::${minutes}`;
+    iso.properties = { ...(iso.properties || {}), walkshed_id: wid, stop_feature_id: stop.id, stop_name: stop.name };
+
+    if (keepBG){
+      map.getSource(SOURCES.ISO)?.setData({ type:"FeatureCollection", features:[iso] });
+    }
+
+    const bb = turf.bbox(iso);
+    const bgs = await fetchBlockGroupsByBbox(bb);
+
+    const bgInWalkshed = [];
+    for (const bg of (bgs.features || [])){
+      let interGeom = null;
+      try { interGeom = turf.intersect(bg, iso); } catch { interGeom = null; }
+      if (!interGeom) continue;
+
+      const bgArea = turf.area(bg);
+      const inArea = turf.area(interGeom);
+      const ratio = (bgArea > 0) ? (inArea / bgArea) : 0;
+
+      const bgFull = JSON.parse(JSON.stringify(bg));
+      bgFull.properties = {
+        ...(bg.properties || {}),
+        GEOID: (bg.properties && (bg.properties.GEOID || bg.properties.geoid)) || null,
+        STATE: bg.properties?.STATE || null,
+        COUNTY: bg.properties?.COUNTY || null,
+        TRACT: bg.properties?.TRACT || null,
+        BLKGRP: bg.properties?.BLKGRP || null,
+        area_ratio: ratio
+      };
+
+      bgInWalkshed.push(bgFull);
+    }
+
+    const enriched = await enrichWithACS(bgInWalkshed);
+    const metrics = computeWalkshedMetrics(enriched);
+
+    walksheds.set(wid, {
+      id: wid,
+      name: stop.name,
+      minutes,
+      stopLonLat: [stop.lon, stop.lat],
+      stopFeatureId: stop.id,
+      polygonFeature: iso,
+      metrics,
+      scores: null,
+      bgFeatures: enriched
+    });
+
+    if (keepBG && $("showBGToggle").checked){
+      syncDisplayedBlockGroups(wid);
+    }
+
+    if (!deferUI){
+      recomputeIndexScores();
+      normalizeOverallTo0_100();
+      renderScoresTable();
+      refreshAllWalkshedsLayer();
+    }
+
+    if (!selectedWid) setSelectedWalkshed(wid);
+    return wid;
+  }
+
+  function computeWalkshedMetrics(features){
+    let pop = 0, minorityPop = 0, hhTotal = 0, hhZero = 0;
+    let incWeightedSum = 0, incWeight = 0;
+
+    for (const f of (features || [])){
+      const p = f.properties || {};
+      if (Number.isFinite(p.est_pop)) pop += p.est_pop;
+      if (Number.isFinite(p.est_minority_pop)) minorityPop += p.est_minority_pop;
+      if (Number.isFinite(p.est_hh_total)) hhTotal += p.est_hh_total;
+      if (Number.isFinite(p.est_hh_zero_veh)) hhZero += p.est_hh_zero_veh;
+
+      const medInc = p.med_income;
+      if (Number.isFinite(medInc) && medInc > 0 && Number.isFinite(p.est_pop) && p.est_pop > 0){
+        incWeightedSum += medInc * p.est_pop;
+        incWeight += p.est_pop;
+      }
+    }
+
+    const minorityShare = pop > 0 ? (minorityPop / pop) : null;
+    const zeroVehShare = hhTotal > 0 ? (hhZero / hhTotal) : null;
+    const incomeApprox = incWeight > 0 ? (incWeightedSum / incWeight) : null;
+
+    return { pop_reached: pop, minority_share: minorityShare, zero_vehicle_share: zeroVehShare, income_approx: incomeApprox };
+  }
+
+  // =========================
+  // Index scoring
+  // =========================
+  function recomputeIndexScores(){
+    const items = Array.from(walksheds.values());
+    if (!items.length) return;
+
+    const vars = [
+      { key: "pop_reached", higherIsWorse: true },
+      { key: "minority_share", higherIsWorse: true },
+      { key: "zero_vehicle_share", higherIsWorse: true },
+      { key: "income_approx", higherIsWorse: false }
+    ];
+
+    const ranges = {};
+    for (const v of vars){
+      const values = items.map(it => it.metrics[v.key]).filter(x => Number.isFinite(x));
+      ranges[v.key] = values.length ? { min: Math.min(...values), max: Math.max(...values) } : { min: 0, max: 0 };
+    }
+
+    for (const it of items){
+      const s = {};
+      const perVar = [];
+      for (const v of vars){
+        const val = it.metrics[v.key];
+        const { min, max } = ranges[v.key];
+        const sc = minMaxScore0_100(val, min, max, v.higherIsWorse);
+        s[v.key] = sc;
+        if (Number.isFinite(sc)) perVar.push(sc);
+      }
+      s.overall_raw = perVar.length ? avgFinite(perVar) : null;
+      s.overall = null;
+      it.scores = s;
+    }
+  }
+
+  function minMaxScore0_100(value, min, max, higherIsWorse=true){
+    if (!Number.isFinite(value)) return null;
+    if (max === min) return 0;
+    let t = (value - min) / (max - min);
+    if (!higherIsWorse) t = 1 - t;
+    return clamp(t * 100, 0, 100);
+  }
+
+  function normalizeOverallTo0_100(){
+    const items = Array.from(walksheds.values());
+    const vals = items.map(it => it.scores?.overall_raw).filter(v => Number.isFinite(v));
+    if (!vals.length) return;
+
+    const min = Math.min(...vals);
+    const max = Math.max(...vals);
+
+    for (const it of items){
+      const v = it.scores?.overall_raw;
+      if (!Number.isFinite(v)) { it.scores.overall = null; continue; }
+      it.scores.overall = (max === min) ? 0 : clamp(((v - min) / (max - min)) * 100, 0, 100);
+    }
+  }
+
+  // =========================
+  // Render table + walksheds layer
+  // =========================
+  function renderScoresTable(){
+    const tbody = $("scoreRows");
+    const items = Array.from(walksheds.values());
+
+    if (!items.length){
+      tbody.innerHTML = `<tr><td colspan="11" class="small">No walksheds yet. Add or load stops, then run the index.</td></tr>`;
+      return;
+    }
+
+    items.sort((a,b) => (Number.isFinite(b.scores?.overall) ? b.scores.overall : -1) - (Number.isFinite(a.scores?.overall) ? a.scores.overall : -1));
+
+    tbody.innerHTML = items.map(it => {
+      const m = it.metrics;
+      const s = it.scores || {};
+      return `
+        <tr data-wid="${escapeHtml(it.id)}">
+          <td><div style="font-weight:650">${escapeHtml(it.name)}</div></td>
+          <td class="mono">${it.minutes}</td>
+          <td><b>${fmtScore(s.overall)}</b></td>
+          <td>${fmtInt(m.pop_reached)}</td>
+          <td>${fmtPct(m.minority_share)}</td>
+          <td>${fmtPct(m.zero_vehicle_share)}</td>
+          <td>${fmtMoney(m.income_approx)}</td>
+          <td class="mono">${fmtScore(s.pop_reached)}</td>
+          <td class="mono">${fmtScore(s.minority_share)}</td>
+          <td class="mono">${fmtScore(s.zero_vehicle_share)}</td>
+          <td class="mono">${fmtScore(s.income_approx)}</td>
+        </tr>
+      `;
+    }).join("");
+
+    Array.from(tbody.querySelectorAll("tr[data-wid]")).forEach(tr => {
+      const wid = tr.getAttribute("data-wid");
+
+      tr.addEventListener("mouseenter", () => { if (wid) highlightByWid(wid); });
+      tr.addEventListener("mouseleave", () => { clearHighlights(); });
+
+      tr.addEventListener("click", () => {
+        const it = walksheds.get(wid);
+        if (!it) return;
+        setSelectedWalkshed(wid);
+        map.getSource(SOURCES.ISO)?.setData({ type:"FeatureCollection", features:[it.polygonFeature] });
+      });
+    });
+
+    if (hoveredWid && walksheds.has(hoveredWid)) setRowHighlight(hoveredWid);
+    if (selectedWid && walksheds.has(selectedWid)) setSelectedWalkshed(selectedWid);
+  }
+
+  function refreshAllWalkshedsLayer(){
+    const fc = {
+      type:"FeatureCollection",
+      features: Array.from(walksheds.values()).map(it => {
+        const f = JSON.parse(JSON.stringify(it.polygonFeature));
+        f.properties = {
+          ...(f.properties || {}),
+          walkshed_id: it.id,
+          stop_feature_id: it.stopFeatureId,
+          name: it.name,
+          minutes: it.minutes,
+          index: it.scores?.overall ?? null
+        };
+        return f;
+      })
+    };
+    map.getSource(SOURCES.ALL)?.setData(fc);
+  }
+
+  // =========================
+  // Export CSV
+  // =========================
+  function exportCSV(){
+    const items = Array.from(walksheds.values());
+    if (!items.length) {
+      setStatus("No walksheds to export yet.", "warn");
+      return;
+    }
+
+    recomputeIndexScores();
+    normalizeOverallTo0_100();
+
+    const headers = [
+      "walkshed_id","stop_id","name","minutes",
+      "pop_reached","minority_share","zero_vehicle_share","income_approx",
+      "score_pop","score_minority","score_zero_veh","score_income",
+      "overall_raw_mean","overall_norm_0_100"
+    ];
+
+    const rows = items.map(it => {
+      const m = it.metrics;
+      const s = it.scores || {};
+      return [
+        it.id, it.stopFeatureId, it.name, it.minutes,
+        m.pop_reached, m.minority_share, m.zero_vehicle_share, m.income_approx,
+        s.pop_reached, s.minority_share, s.zero_vehicle_share, s.income_approx,
+        s.overall_raw, s.overall
+      ].map(x => (x == null ? "" : String(x)));
+    });
+
+    const csv = [headers.join(","), ...rows.map(r => r.map(escapeCSV).join(","))].join("\n");
+    const blob = new Blob([csv], { type:"text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "walkshed_index_scores.csv";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+
+    setStatus("CSV exported", "ok");
+  }
+
+  function escapeCSV(v){
+    if (v.includes(",") || v.includes('"') || v.includes("\n")) return `"${v.replaceAll('"','""')}"`;
+    return v;
+  }
+
+  // =========================
+  // Export PDF (offscreen map)
+  // =========================
+  function getSortedWalkshedItems(){
+    const items = Array.from(walksheds.values());
+    items.sort((a,b) => (b.scores?.overall ?? -1) - (a.scores?.overall ?? -1));
+    return items;
+  }
+
+  function bboxAllWalksheds(items){
+    const bbs = [];
+    for (const it of items){
+      try { bbs.push(turf.bbox(it.polygonFeature)); } catch {}
+    }
+    if (!bbs.length) return null;
+    const xs = bbs.flatMap(b => [b[0], b[2]]);
+    const ys = bbs.flatMap(b => [b[1], b[3]]);
+    return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+  }
+
+  function drawSimpleTable(doc, x, y, colWidths, headers, rows, opts={}){
+    const {
+      rowH=16,
+      headerH=18,
+      fontSize=9,
+      lineColor=[210,210,210],
+      headerFill=[245,245,245],
+      textColor=[40,40,40],
+      headerTextColor=[20,20,20]
+    } = opts;
+
+    doc.setDrawColor(...lineColor);
+    doc.setLineWidth(0.8);
+
+    doc.setFillColor(...headerFill);
+    doc.rect(x, y, colWidths.reduce((s,w)=>s+w,0), headerH, "F");
+
+    doc.setFont("helvetica","bold");
+    doc.setFontSize(fontSize);
+    doc.setTextColor(...headerTextColor);
+
+    let cx = x;
+    for (let i=0;i<headers.length;i++){
+      doc.text(String(headers[i]), cx + 4, y + 12);
+      cx += colWidths[i];
+    }
+
+    doc.rect(x, y, colWidths.reduce((s,w)=>s+w,0), headerH + rowH * rows.length);
+
+    cx = x;
+    for (let i=0;i<colWidths.length;i++){
+      doc.line(cx, y, cx, y + headerH + rowH * rows.length);
+      cx += colWidths[i];
+    }
+    doc.line(cx, y, cx, y + headerH + rowH * rows.length);
+
+    doc.setFont("helvetica","normal");
+    doc.setTextColor(...textColor);
+
+    for (let r=0; r<rows.length; r++){
+      const ry = y + headerH + r*rowH;
+      doc.line(x, ry, x + colWidths.reduce((s,w)=>s+w,0), ry);
+
+      cx = x;
+      for (let c=0; c<headers.length; c++){
+        const val = rows[r][c] ?? "";
+        doc.text(String(val), cx + 4, ry + 12, { maxWidth: colWidths[c] - 8 });
+        cx += colWidths[c];
+      }
+    }
+
+    return y + headerH + rowH * rows.length;
+  }
+
+  async function exportPDF(){
+    const items = getSortedWalkshedItems();
+    if (!items.length){
+      setStatus("No walksheds to export yet.", "warn");
+      return;
+    }
+
+    recomputeIndexScores();
+    normalizeOverallTo0_100();
+
+    setStatus("Exporting PDF…", "warn");
+    setProgress(`Building summary + ${items.length} walkshed pages…`);
+
+    await exportMapReady;
+
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "letter" });
+
+    const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
+
+    const margin = 36;
+    const contentW = pageW - margin*2;
+
+    const labelGray = [110,110,120];
+    const textDark = [30,30,30];
+
+    try { hoverPopup.remove(); } catch {}
+
+    function kv(doc, x, y, k, v){
+      doc.setFont("helvetica","bold");
+      doc.setFontSize(10);
+      doc.setTextColor(...labelGray);
+      doc.text(k, x, y);
+
+      doc.setFont("helvetica","normal");
+      doc.setFontSize(12);
+      doc.setTextColor(...textDark);
+      doc.text(v, x, y + 14);
+    }
+
+    try{
+      exportMap.getSource(EXPORT.SOURCES.ISO)?.setData({ type:"FeatureCollection", features:[] });
+      exportMap.getSource(EXPORT.SOURCES.ALL)?.setData({
+        type:"FeatureCollection",
+        features: items.map(it => {
+          const f = JSON.parse(JSON.stringify(it.polygonFeature));
+          f.properties = { ...(f.properties||{}), walkshed_id: it.id, name: it.name, minutes: it.minutes, index: it.scores?.overall ?? null };
+          return f;
+        })
+      });
+
+      const bbAll = bboxAllWalksheds(items);
+      if (bbAll){
+        exportMap.fitBounds([[bbAll[0], bbAll[1]],[bbAll[2], bbAll[3]]], { padding: 60, duration: 350 });
+        await waitForMapSettled(exportMap);
+        await sleep(150);
+      }
+
+      const shot = captureMapImageSafe(exportMap);
+
+      doc.setFont("helvetica","bold");
+      doc.setFontSize(18);
+      doc.setTextColor(...textDark);
+      doc.text("Walkshed Index Report", margin, margin + 20);
+
+      doc.setFont("helvetica","normal");
+      doc.setFontSize(10);
+      doc.setTextColor(...labelGray);
+      doc.text(`ACS ${ACS_YEAR} • Generated ${new Date().toLocaleString()}`, margin, margin + 38);
+      doc.text(`Walkshed minutes: ${parseInt($("minutes").value,10)} • Walksheds: ${items.length}`, margin, margin + 52);
+
+      const imgTop = margin + 66;
+      const imgH = 280;
+      doc.setDrawColor(210); doc.setLineWidth(1);
+      doc.rect(margin, imgTop, contentW, imgH);
+
+      if (shot.ok){
+        doc.addImage(shot.data, "PNG", margin, imgTop, contentW, imgH, undefined, "FAST");
+      } else {
+        doc.setFont("helvetica","normal");
+        doc.setFontSize(10);
+        doc.setTextColor(160, 60, 60);
+        doc.text("Map screenshot unavailable (canvas capture blocked). PDF will still include tables.", margin + 10, imgTop + 20);
+      }
+
+      const tableTop = imgTop + imgH + 18;
+      const headers = ["Rank","Stop","Overall","Pop","Min%","0Veh%","Income"];
+      const colW = [40, 220, 55, 65, 55, 60, 70];
+      const scale = contentW / colW.reduce((s,w)=>s+w,0);
+      const colWs = colW.map(w => w*scale);
+
+      const rowsAll = items.map((it, idx) => {
+        const m = it.metrics || {};
+        return [
+          String(idx+1),
+          it.name,
+          fmtScore(it.scores?.overall),
+          fmtInt(m.pop_reached),
+          fmtPct(m.minority_share),
+          fmtPct(m.zero_vehicle_share),
+          fmtMoney(m.income_approx)
+        ];
+      });
+
+      const availableH = pageH - tableTop - 42;
+      const rowH = 16;
+      const headerH = 18;
+      const maxRowsFirst = Math.max(1, Math.floor((availableH - headerH) / rowH));
+
+      const firstChunk = rowsAll.slice(0, maxRowsFirst);
+      drawSimpleTable(doc, margin, tableTop, colWs, headers, firstChunk, { rowH, headerH, fontSize:9 });
+
+      doc.setFont("helvetica","normal");
+      doc.setFontSize(9);
+      doc.setTextColor(...labelGray);
+      doc.text("Summary: ordered by Overall Index (best=100, worst=0).", margin, pageH - 22);
+
+      let offset = maxRowsFirst;
+      while (offset < rowsAll.length){
+        doc.addPage();
+
+        doc.setFont("helvetica","bold");
+        doc.setFontSize(14);
+        doc.setTextColor(...textDark);
+        doc.text("Walkshed Index Summary (continued)", margin, margin + 18);
+
+        doc.setFont("helvetica","normal");
+        doc.setFontSize(10);
+        doc.setTextColor(...labelGray);
+        doc.text(`Rows ${offset+1}–${Math.min(rowsAll.length, offset+30)} of ${rowsAll.length}`, margin, margin + 34);
+
+        const top = margin + 52;
+        const available = pageH - top - 30;
+        const maxRows = Math.max(1, Math.floor((available - headerH) / rowH));
+
+        const chunk = rowsAll.slice(offset, offset + maxRows);
+        drawSimpleTable(doc, margin, top, colWs, headers, chunk, { rowH, headerH, fontSize:9 });
+        offset += maxRows;
+      }
+    } catch(err){
+      console.error("Summary page PDF error:", err);
+    }
+
+    for (let i=0; i<items.length; i++){
+      const it = items[i];
+      doc.addPage();
+      setProgress(`Rendering walkshed page ${i+1}/${items.length}: ${it.name}`);
+
+      try{
+        const singlePoly = JSON.parse(JSON.stringify(it.polygonFeature));
+        singlePoly.properties = { ...(singlePoly.properties||{}), walkshed_id: it.id, name: it.name, minutes: it.minutes };
+
+        exportMap.getSource(EXPORT.SOURCES.ALL)?.setData({ type:"FeatureCollection", features:[singlePoly] });
+        exportMap.getSource(EXPORT.SOURCES.ISO)?.setData({ type:"FeatureCollection", features:[singlePoly] });
+
+        const bb = turf.bbox(singlePoly);
+        exportMap.fitBounds([[bb[0], bb[1]],[bb[2], bb[3]]], { padding: 60, duration: 320 });
+        await waitForMapSettled(exportMap);
+        await sleep(150);
+
+        const shot = captureMapImageSafe(exportMap);
+
+        doc.setFont("helvetica","bold");
+        doc.setFontSize(16);
+        doc.setTextColor(...textDark);
+        doc.text(`${it.name} — ${it.minutes} min walkshed`, margin, margin + 18);
+
+        doc.setFont("helvetica","normal");
+        doc.setFontSize(10);
+        doc.setTextColor(...labelGray);
+        doc.text(`Overall Index: ${fmtScore(it.scores?.overall)} (0–100)`, margin, margin + 34);
+
+        const imgTop = margin + 50;
+        const imgH = 320;
+        doc.setDrawColor(210); doc.setLineWidth(1);
+        doc.rect(margin, imgTop, contentW, imgH);
+
+        if (shot.ok){
+          doc.addImage(shot.data, "PNG", margin, imgTop, contentW, imgH, undefined, "FAST");
+        } else {
+          doc.setFont("helvetica","normal");
+          doc.setFontSize(10);
+          doc.setTextColor(160, 60, 60);
+          doc.text("Map screenshot unavailable (canvas capture blocked).", margin + 10, imgTop + 20);
+        }
+
+        const m = it.metrics || {};
+        const s = it.scores || {};
+        const boxTop = imgTop + imgH + 18;
+
+        const col1 = margin;
+        const col2 = margin + contentW/2 + 10;
+        const y = boxTop;
+
+        kv(doc, col1, y, "Population reached", fmtInt(m.pop_reached));
+        kv(doc, col1, y + 44, "Minority share", fmtPct(m.minority_share));
+        kv(doc, col1, y + 88, "Zero-vehicle HH share", fmtPct(m.zero_vehicle_share));
+        kv(doc, col1, y + 132, "Income (approx)", fmtMoney(m.income_approx));
+
+        kv(doc, col2, y, "Pop score (0–100)", fmtScore(s.pop_reached));
+        kv(doc, col2, y + 44, "Minority score (0–100)", fmtScore(s.minority_share));
+        kv(doc, col2, y + 88, "0-vehicle score (0–100)", fmtScore(s.zero_vehicle_share));
+        kv(doc, col2, y + 132, "Income score (0–100)", fmtScore(s.income_approx));
+
+        doc.setFont("helvetica","normal");
+        doc.setFontSize(9);
+        doc.setTextColor(...labelGray);
+        doc.text(
+          "Notes: Variable scores use min–max scaling across computed walksheds (income inverted). Overall is normalized so best=100, worst=0.",
+          margin, pageH - 22,
+          { maxWidth: contentW }
+        );
+      } catch(err){
+        console.error("Per-walkshed PDF error:", it?.name, err);
+      }
+    }
+
+    const filename = `walkshed_index_report_${new Date().toISOString().slice(0,10)}.pdf`;
+    try{
+      doc.save(filename);
+      setStatus("PDF exported", "ok");
+      setProgress("Done.");
+    } catch(err){
+      console.error("doc.save failed:", err);
+      setStatus("PDF export failed (see console).", "bad");
+      setProgress("If this is Safari/iOS, try Chrome/Edge on desktop.");
+    }
+  }
+
+  // =========================
+  // Isochrone / TIGERweb / ACS
+  // =========================
+  async function fetchIsochrone(lon, lat, minutes){
+    const url = new URL(`https://api.mapbox.com/isochrone/v1/mapbox/walking/${lon},${lat}`);
+    url.searchParams.set("contours_minutes", String(minutes));
+    url.searchParams.set("polygons", "true");
+    url.searchParams.set("denoise", "1");
+    url.searchParams.set("generalize", "50");
+    url.searchParams.set("access_token", mapboxgl.accessToken);
+
+    const res = await fetch(url.toString());
+    if (!res.ok) throw new Error(`Isochrone HTTP ${res.status}`);
+    const gj = await res.json();
+    if (!gj.features?.length) throw new Error("No isochrone returned");
+    const f = gj.features[0];
+    f.properties = { ...(f.properties||{}), minutes };
+    return f;
+  }
+
+  async function fetchBlockGroupsByBbox(bbox){
+    const [xmin,ymin,xmax,ymax] = bbox;
+    const url = new URL(TIGER_BG_QUERY);
+    url.searchParams.set("where", "1=1");
+    url.searchParams.set("geometry", `${xmin},${ymin},${xmax},${ymax}`);
+    url.searchParams.set("geometryType", "esriGeometryEnvelope");
+    url.searchParams.set("inSR", "4326");
+    url.searchParams.set("spatialRel", "esriSpatialRelIntersects");
+    url.searchParams.set("outFields", "GEOID,STATE,COUNTY,TRACT,BLKGRP,NAME");
+    url.searchParams.set("outSR", "4326");
+    url.searchParams.set("f", "geojson");
+
+    const res = await fetch(url.toString());
+    if (!res.ok) throw new Error(`TIGERweb HTTP ${res.status}`);
+    return await res.json();
+  }
+
+  async function enrichWithACS(intersections){
+    const byTract = new Map();
+
+    for (const f of intersections){
+      const p = f.properties || {};
+      const state = String(p.STATE || "").padStart(2, "0");
+      const county = String(p.COUNTY || "").padStart(3, "0");
+      const tract = String(p.TRACT || "").padStart(6, "0");
+      const blkgrp = String(p.BLKGRP || "").padStart(1, "0");
+      const geoid = p.GEOID || `${state}${county}${tract}${blkgrp}`;
+
+      f.properties.STATE = state;
+      f.properties.COUNTY = county;
+      f.properties.TRACT = tract;
+      f.properties.BLKGRP = blkgrp;
+      f.properties.GEOID = geoid;
+
+      const key = `${state}|${county}|${tract}`;
+      if (!byTract.has(key)) byTract.set(key, { state, county, tract, features: [] });
+      byTract.get(key).features.push(f);
+    }
+
+    const tractRequests = Array.from(byTract.values()).map(async (grp) => {
+      const url = new URL(ACS_BASE);
+      url.searchParams.set("get", ["NAME", ...ACS_VARS].join(","));
+      url.searchParams.set("for", "block group:*");
+      url.searchParams.set("in", `state:${grp.state} county:${grp.county} tract:${grp.tract}`);
+
+      const res = await fetch(url.toString());
+      if (!res.ok) throw new Error(`ACS HTTP ${res.status}`);
+      const rows = await res.json();
+
+      const header = rows[0];
+      const idx = {};
+      header.forEach((h,i) => idx[h] = i);
+
+      const m = new Map();
+      for (let i=1; i<rows.length; i++){
+        const r = rows[i];
+        const bg = String(r[idx["block group"]]);
+
+        const totalPop = safeNumOrNull(r[idx["B01003_001E"]]);
+        const totalB03002 = safeNumOrNull(r[idx["B03002_001E"]]);
+        const whiteNH = safeNumOrNull(r[idx["B03002_003E"]]);
+        const minorityPop = (totalB03002 != null || totalPop != null || whiteNH != null)
+          ? Math.max(0, ((totalB03002 ?? totalPop ?? 0) - (whiteNH ?? 0)))
+          : null;
+
+        const hhTotal = safeNumOrNull(r[idx["B25044_001E"]]);
+        const ownerZero = safeNumOrNull(r[idx["B25044_003E"]]);
+        const renterZero = safeNumOrNull(r[idx["B25044_010E"]]);
+        const hhZero = (ownerZero != null || renterZero != null)
+          ? ((ownerZero ?? 0) + (renterZero ?? 0))
+          : null;
+
+        const medInc  = safeNumOrNull(r[idx["B19013_001E"]]);
+
+        m.set(bg, { pop: totalPop, minorityPop, hhTotal, hhZero, medInc });
+      }
+
+      return { key: `${grp.state}|${grp.county}|${grp.tract}`, map: m };
+    });
+
+    const tractResults = await Promise.all(tractRequests);
+    const tractMap = new Map(tractResults.map(tr => [tr.key, tr.map]));
+
+    for (const f of intersections){
+      const p = f.properties || {};
+      const tkey = `${p.STATE}|${p.COUNTY}|${p.TRACT}`;
+      const bgLookup = tractMap.get(tkey);
+      const bg = bgLookup ? bgLookup.get(String(p.BLKGRP)) : null;
+
+      const ratio = Number.isFinite(p.area_ratio) ? p.area_ratio : 0;
+
+      const pop = bg ? bg.pop : null;
+      const minor = bg ? bg.minorityPop : null;
+      const hhTotal = bg ? bg.hhTotal : null;
+      const hhZero = bg ? bg.hhZero : null;
+      const medInc = bg ? bg.medInc : null;
+
+      p.med_income = (medInc != null && Number.isFinite(medInc)) ? medInc : null;
+
+      p.est_pop = (pop != null && Number.isFinite(pop)) ? (pop * ratio) : null;
+      p.est_minority_pop = (minor != null && Number.isFinite(minor)) ? (minor * ratio) : null;
+
+      p.est_hh_total = (hhTotal != null && Number.isFinite(hhTotal)) ? (hhTotal * ratio) : null;
+      p.est_hh_zero_veh = (hhZero != null && Number.isFinite(hhZero)) ? (hhZero * ratio) : null;
+
+      f.properties = p;
+    }
+
+    return intersections;
+  }
+</script>
+</body>
+</html>
