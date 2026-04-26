@@ -181,9 +181,9 @@
           <div class="s">area-weighted</div>
         </div>
         <div class="stat">
-          <div class="k">Minority share</div>
+          <div class="k">Non-White</div>
           <div class="v" id="minorityShare">—</div>
-          <div class="s">minority / pop</div>
+          <div class="s">non-white / pop</div>
         </div>
         <div class="stat">
           <div class="k">Zero-vehicle HH share</div>
@@ -1512,7 +1512,7 @@
         const y = boxTop;
 
         kv(doc, col1, y, "Population reached", fmtInt(m.pop_reached));
-        kv(doc, col1, y + 44, "Minority share", fmtPct(m.minority_share));
+        kv(doc, col1, y + 44, "Non-White", fmtPct(m.minority_share));
         kv(doc, col1, y + 88, "Zero-vehicle HH share", fmtPct(m.zero_vehicle_share));
         kv(doc, col1, y + 132, "Income (approx)", fmtMoney(m.income_approx));
 
