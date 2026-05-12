@@ -255,6 +255,7 @@
 
   const ACS_YEAR = 2024;
   const ACS_BASE = `https://api.census.gov/data/${ACS_YEAR}/acs/acs5`;
+  const CENSUS_API_KEY = "6476e75960046ca9eb4dc7dde39681d7d3d1c002";
   const TIGER_BG_QUERY = "https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/Tracts_Blocks/MapServer/1/query";
 
   const ACS_VARS = [
@@ -375,6 +376,11 @@
   let selectedWid = null;
 
   let batchAbort = { aborted: false };
+
+  // ACS cache: one Census request per unique tract, reused across all walksheds in this browser session.
+  // Key format: state|county|tract
+  const ACS_TRACT_CACHE = new Map();
+  const ACS_TRACT_INFLIGHT = new Map();
 
   // Used to avoid “zoom/selection changes” when clicking BGs or other layers
   let _clickedBGThisTick = false;
@@ -1583,37 +1589,34 @@
     return await res.json();
   }
 
-  async function enrichWithACS(intersections){
-    const byTract = new Map();
+  async function fetchACSTractBlockGroups(grp){
+    const key = `${grp.state}|${grp.county}|${grp.tract}`;
 
-    for (const f of intersections){
-      const p = f.properties || {};
-      const state = String(p.STATE || "").padStart(2, "0");
-      const county = String(p.COUNTY || "").padStart(3, "0");
-      const tract = String(p.TRACT || "").padStart(6, "0");
-      const blkgrp = String(p.BLKGRP || "").padStart(1, "0");
-      const geoid = p.GEOID || `${state}${county}${tract}${blkgrp}`;
+    // Reuse completed ACS results for this tract. This is the main request reducer.
+    if (ACS_TRACT_CACHE.has(key)) return ACS_TRACT_CACHE.get(key);
 
-      f.properties.STATE = state;
-      f.properties.COUNTY = county;
-      f.properties.TRACT = tract;
-      f.properties.BLKGRP = blkgrp;
-      f.properties.GEOID = geoid;
+    // Reuse a request already in progress, which prevents concurrent workers from
+    // fetching the same tract at the same time.
+    if (ACS_TRACT_INFLIGHT.has(key)) return await ACS_TRACT_INFLIGHT.get(key);
 
-      const key = `${state}|${county}|${tract}`;
-      if (!byTract.has(key)) byTract.set(key, { state, county, tract, features: [] });
-      byTract.get(key).features.push(f);
-    }
-
-    const tractRequests = Array.from(byTract.values()).map(async (grp) => {
+    const requestPromise = (async () => {
       const url = new URL(ACS_BASE);
+      url.searchParams.set("key", CENSUS_API_KEY);
       url.searchParams.set("get", ["NAME", ...ACS_VARS].join(","));
       url.searchParams.set("for", "block group:*");
       url.searchParams.set("in", `state:${grp.state} county:${grp.county} tract:${grp.tract}`);
 
       const res = await fetch(url.toString());
-      if (!res.ok) throw new Error(`ACS HTTP ${res.status}`);
+      if (!res.ok) {
+        let detail = "";
+        try { detail = await res.text(); } catch {}
+        throw new Error(`ACS HTTP ${res.status}${detail ? `: ${detail.slice(0, 200)}` : ""}`);
+      }
+
       const rows = await res.json();
+      if (!Array.isArray(rows) || !rows.length) {
+        throw new Error(`ACS returned no rows for tract ${key}`);
+      }
 
       const header = rows[0];
       const idx = {};
@@ -1638,15 +1641,54 @@
           ? ((ownerZero ?? 0) + (renterZero ?? 0))
           : null;
 
-        const medInc  = safeNumOrNull(r[idx["B19013_001E"]]);
+        const medInc = safeNumOrNull(r[idx["B19013_001E"]]);
 
         m.set(bg, { pop: totalPop, minorityPop, hhTotal, hhZero, medInc });
       }
 
-      return { key: `${grp.state}|${grp.county}|${grp.tract}`, map: m };
-    });
+      ACS_TRACT_CACHE.set(key, m);
+      return m;
+    })();
 
-    const tractResults = await Promise.all(tractRequests);
+    ACS_TRACT_INFLIGHT.set(key, requestPromise);
+
+    try {
+      return await requestPromise;
+    } finally {
+      ACS_TRACT_INFLIGHT.delete(key);
+    }
+  }
+
+  async function enrichWithACS(intersections){
+    const byTract = new Map();
+
+    for (const f of intersections){
+      const p = f.properties || {};
+      const state = String(p.STATE || "").padStart(2, "0");
+      const county = String(p.COUNTY || "").padStart(3, "0");
+      const tract = String(p.TRACT || "").padStart(6, "0");
+      const blkgrp = String(p.BLKGRP || "").padStart(1, "0");
+      const geoid = p.GEOID || `${state}${county}${tract}${blkgrp}`;
+
+      f.properties.STATE = state;
+      f.properties.COUNTY = county;
+      f.properties.TRACT = tract;
+      f.properties.BLKGRP = blkgrp;
+      f.properties.GEOID = geoid;
+
+      const key = `${state}|${county}|${tract}`;
+      if (!byTract.has(key)) byTract.set(key, { state, county, tract, features: [] });
+      byTract.get(key).features.push(f);
+    }
+
+    const tractResults = await Promise.all(
+      Array.from(byTract.values()).map(async (grp) => {
+        const key = `${grp.state}|${grp.county}|${grp.tract}`;
+        const map = await fetchACSTractBlockGroups(grp);
+        return { key, map };
+      })
+    );
+
     const tractMap = new Map(tractResults.map(tr => [tr.key, tr.map]));
 
     for (const f of intersections){
